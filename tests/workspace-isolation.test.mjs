@@ -1,4 +1,4 @@
-// Runs the real workspace service against Drizzle + an in-memory SQLite D1 adapter.
+// Runs the real workspace service against the production LibSQL driver and a temporary SQLite database.
 // node --experimental-vm-modules --experimental-sqlite --test tests/workspace-isolation.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,7 +7,11 @@ import { SourceTextModule, SyntheticModule } from 'node:vm';
 import { readFile, readdir } from 'node:fs/promises';
 import { dirname, resolve, extname } from 'node:path';
 import ts from 'typescript';
-import { drizzle } from 'drizzle-orm/d1';
+import {drizzle} from 'drizzle-orm/libsql';
+import {createClient} from '@libsql/client';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
 const root=resolve(import.meta.dirname,'..');
 let db;
@@ -34,24 +38,15 @@ await serviceModule.evaluate();
 const service=serviceModule.namespace;
 const schemaModule=await loadModule(resolve(root,'db/schema')); await schemaModule.evaluate();
 const policyModule=await loadModule(resolve(root,'lib/workspace-policy')); await policyModule.evaluate();
-function d1(sqlite) {
-  const prepare=(sql)=>{
-    let parameters=[];
-    return { bind(...values){parameters=values;return this},
-      async all(){return {results:sqlite.prepare(sql).all(...parameters),success:true}},
-      async raw(){return sqlite.prepare(sql).all(...parameters).map(row=>Object.values(row))},
-      async run(){const result=sqlite.prepare(sql).run(...parameters);return {success:true,results:[],meta:{changes:Number(result.changes),last_row_id:Number(result.lastInsertRowid)}}},
-      _all(){return {results:sqlite.prepare(sql).all(...parameters),success:true}},
-    };
-  };
-  return {prepare,async batch(statements){if(beforeBatch){const hook=beforeBatch;beforeBatch=null;hook()}sqlite.exec('BEGIN');try{const results=statements.map(s=>s._all());sqlite.exec('COMMIT');return results}catch(error){sqlite.exec('ROLLBACK');throw error}}};
-}
 async function setup() {
-  const sqlite=new DatabaseSync(':memory:'); sqlite.exec('PRAGMA foreign_keys=ON');
+  const temp=mkdtempSync(join(tmpdir(),'highlevel-libsql-'));const file=join(temp,'test.db');
+  const sqlite=new DatabaseSync(file);sqlite.exec('PRAGMA foreign_keys=ON');
   const files=(await readdir(resolve(root,'drizzle'))).filter(f=>f.endsWith('.sql')).sort();
   assert.ok(files.length,'Run npm run db:generate before tests');
   for(const file of files)sqlite.exec(await readFile(resolve(root,'drizzle',file),'utf8'));
-  db=drizzle(d1(sqlite),{schema:schemaModule.namespace});return sqlite;
+  const client=createClient({url:`file:${file}`});db=drizzle(client,{schema:schemaModule.namespace});
+  const batch=db.batch.bind(db);db.batch=async statements=>{if(beforeBatch){const hook=beforeBatch;beforeBatch=null;hook()}return batch(statements)};
+  const close=sqlite.close.bind(sqlite);sqlite.close=()=>{client.close();close();rmSync(temp,{recursive:true,force:true})};return sqlite;
 }
 const user=(name)=>({userId:`user-${name}`,email:`${name}@example.com`,fullName:name,displayName:name});
 const mutate=(who,input)=>service.mutateWorkspace(who,policyModule.namespace.actionSchema.parse(input));

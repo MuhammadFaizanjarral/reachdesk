@@ -1,12 +1,2 @@
-import {env} from 'cloudflare:workers';
-import {eq} from 'drizzle-orm';
-import {getChatGPTUser} from '../chatgpt-auth';
-import {getDb} from '../../db';
-import {members} from '../../db/schema';
-import AuthScreen from '../auth-screen';
-export const dynamic='force-dynamic';
-export default async function SetupAccount(){
- const user=await getChatGPTUser();const allowed=!!user&&!!env.BOOTSTRAP_OWNER_EMAIL&&user.email.toLowerCase()===env.BOOTSTRAP_OWNER_EMAIL.toLowerCase();
- const member=allowed?await getDb().select().from(members).where(eq(members.userId,user!.userId)).get():null;
- return <AuthScreen mode="setup" ownerAllowed={allowed} ownerEmail={allowed?user!.email:''} accountReady={!!member?.authUserId}/>;
-}
+import {LockKeyhole} from 'lucide-react';
+export default function SetupAccount(){return <main className="card access-blocked"><LockKeyhole size={32} style={{margin:'auto',color:'#a486cf'}}/><h1 style={{marginTop:20}}>Set up your account</h1><p>Ask your workspace admin for an activation link. The first administrator account is activated using a private setup link created during deployment.</p><a className="btn primary" href="/">Back to sign in</a></main>}

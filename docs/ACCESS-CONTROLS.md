@@ -2,15 +2,13 @@
 
 ## Email/password authentication
 
-The application uses Better Auth 1.7.18 and its Drizzle SQLite adapter. The password, credential, session, verification and rate-limit tables are separate from workspace memberships. Passwords use Better Auth's hashing implementation; the app never returns password hashes or stores plaintext passwords. New passwords must be 12–128 characters. Session cookies are HttpOnly, SameSite=Lax and Secure on HTTPS. Sessions expire after seven days, cookie caching is disabled, and the current database membership is checked for workspace access. Login requests are rate limited using database-backed counters and the hosting proxy's client-address header.
+The application uses Better Auth 1.7.18 and its Drizzle SQLite adapter. The password, credential, session, verification and rate-limit tables are separate from workspace memberships. Passwords use Better Auth's hashing implementation; the app never returns password hashes or stores plaintext passwords. New passwords must be 12–128 characters. Session cookies are HttpOnly, SameSite=Lax and Secure on HTTPS. Sessions expire after seven days, cookie caching is disabled, and the current database membership is checked for workspace access. Login requests are rate limited using database-backed counters and Vercel's `x-vercel-forwarded-for` client-address header.
 
 The catch-all auth handler explicitly exposes sign-in, sign-out, session lookup and authenticated password changes only. Public signup, account linking, user deletion and other library endpoints are not exposed. Application role and workspace claims never come from client-supplied signup fields.
 
-### First owner setup
+### First owner setup on Vercel
 
-The Site is still private at the hosting layer. At `/setup-account`, the owner verifies their existing private-preview identity and sets their admin password. The server requires the exact `BOOTSTRAP_OWNER_EMAIL` runtime value and verifies workspace ownership. Once configured, the bootstrap endpoint refuses to overwrite that password. The same verified owner can generate an owner recovery link there.
-
-Ordinary workspace APIs accept only a Better Auth session; Sites/ChatGPT identity alone cannot bypass the password login. The private hosting gate is retained until an explicit audience change. Removing that gate is a separate sharing action and does not remove application authentication.
+There is no public bootstrap or owner-recovery API. An operator with target database credentials runs `npm run owner:link` in a trusted console. The script checks `BOOTSTRAP_OWNER_EMAIL`, verifies an existing owner if present, preserves their ID, and issues a single-use activation or recovery link. For a new empty database it atomically creates the owner workspace/membership first. The owner sets their own password through that link. The application accepts only a valid password session; no ChatGPT identity headers are used.
 
 ### Team activation and recovery
 
@@ -28,7 +26,7 @@ Invitation possession authorizes this manually provisioned account setup; a sepa
 Only admins may add people, set permissions, suspend, remove or restore memberships. Uninvited people cannot create a password account. A member's stable auth identity is bound to the existing member record server-side; users cannot promote themselves or select another workspace at login.
 
 - Suspension blocks workspace requests and keeps lead assignments.
-- Removal blocks workspace requests and transfers leads to the acting admin in a D1 batch.
+- Removal blocks workspace requests and transfers leads to the acting admin in an atomic database batch.
 - Historical messages and member IDs remain for reporting.
 - Restoration keeps the same account. Restoring an unclaimed invitation returns it to invited status.
 - Restoring a removed member does not reclaim leads that were transferred.
@@ -54,13 +52,13 @@ Feature restrictions preserve read access to assigned leads. Data already viewed
 
 ## Runtime configuration and deployment
 
-- `BETTER_AUTH_SECRET`: generated server-side signing secret, stored as a Sites secret.
+- `BETTER_AUTH_SECRET`: generated server-side signing secret, stored as a Vercel secret.
 - `BETTER_AUTH_URL`: exact application origin; update it if the domain changes.
-- `BOOTSTRAP_OWNER_EMAIL`: configured owner identity, stored as a Sites secret.
+- `BOOTSTRAP_OWNER_EMAIL`: configured owner identity, stored as a Vercel secret.
 
-Keep local `.dev.vars` ignored. Apply schema migrations through the standard Sites build/publication workflow. Production credentials and local QA records are not included in source or archives.
+Keep local `.env.local` ignored. Apply migrations once to the intended target with `npm run db:migrate`. Production credentials and local QA records are not included in source or archives.
 
-Before broad team rollout: explicitly enable the intended hosting audience, complete owner setup, test one invitation and its restrictions, and configure an email sender if automatic activation/recovery emails are desired. Administrator MFA and additional operational monitoring remain future work.
+Before broad team rollout: complete owner setup, test one invitation and its restrictions, and configure an email sender if automatic activation/recovery emails are desired. Administrator MFA and additional operational monitoring remain future work.
 
 ## Primary references
 

@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { analyzeHtml, auditWebsite, validateAuditUrl } from '../lib/seo-audit.ts';
 
+const testAudit=(url:string)=>auditWebsite(url,globalThis.fetch);
+
 const validPage = `<!doctype html><html><head><title>Useful services for local businesses</title>
 <meta name="description" content="Explore our professional services for local businesses, including clear pricing, helpful guidance and a personal consultation.">
 <meta name="viewport" content="width=device-width, initial-scale=1"><link rel="canonical" href="/">
@@ -57,10 +59,10 @@ test('limits redirects to the authorized host and does not request private redir
       calls.push(String(input));
       return new Response(null, { status: 302, headers: { Location: 'https://169.254.169.254/' } });
     }) as typeof fetch;
-    await assert.rejects(auditWebsite('https://example.com'), /public website/);
+    await assert.rejects(testAudit('https://example.com'), /public website/);
     assert.equal(calls.length, 1);
     globalThis.fetch = (async () => new Response(null, { status: 301, headers: { Location: 'https://www.example.com/' } })) as typeof fetch;
-    await assert.rejects(auditWebsite('https://example.com'), /different host/);
+    await assert.rejects(testAudit('https://example.com'), /different host/);
   } finally { globalThis.fetch = original; }
 });
 
@@ -70,10 +72,10 @@ test('fetches same-host redirects, validates response type and enforces streamin
     globalThis.fetch = (async (input: RequestInfo | URL) => String(input).endsWith('/old')
       ? new Response(null, { status: 302, headers: { Location: '/new' } })
       : new Response(validPage, { headers: { 'content-type': 'text/html; charset=utf-8' } })) as typeof fetch;
-    assert.equal((await auditWebsite('https://example.com/old')).finalUrl, 'https://example.com/new');
+    assert.equal((await testAudit('https://example.com/old')).finalUrl, 'https://example.com/new');
     globalThis.fetch = (async () => new Response('{}', { headers: { 'content-type': 'application/json' } })) as typeof fetch;
-    await assert.rejects(auditWebsite('https://example.com'), /HTML page/);
+    await assert.rejects(testAudit('https://example.com'), /HTML page/);
     globalThis.fetch = (async () => new Response('x'.repeat(1024 * 1024 + 1), { headers: { 'content-type': 'text/html' } })) as typeof fetch;
-    await assert.rejects(auditWebsite('https://example.com'), /1 MB/);
+    await assert.rejects(testAudit('https://example.com'), /1 MB/);
   } finally { globalThis.fetch = original; }
 });

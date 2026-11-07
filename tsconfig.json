@@ -28,8 +28,7 @@
       ]
     },
     "types": [
-      "node",
-      "@cloudflare/workers-types"
+      "node"
     ],
     "allowImportingTsExtensions": true
   },
@@ -43,12 +42,7 @@
   ],
   "exclude": [
     "node_modules",
-    "examples",
-    "dist",
-    ".vinext",
-    ".wrangler",
-    ".sites-runtime",
-    "outputs",
-    "work"
+    ".next",
+    "dist"
   ]
 }

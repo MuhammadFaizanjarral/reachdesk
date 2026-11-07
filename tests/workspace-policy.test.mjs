@@ -40,3 +40,12 @@ test('invitation email is normalized while roles remain constrained',()=>{
   assert.equal(actionSchema.parse(invitation).email,'alex@example.com');
   assert.equal(actionSchema.safeParse({...invitation,role:'owner'}).success,false);
 });
+
+test('CSRF validation uses the configured public origin behind a deployment proxy',()=>{
+ const previous=process.env.BETTER_AUTH_URL;
+ process.env.BETTER_AUTH_URL='https://production.example';
+ try{
+  assert.doesNotThrow(()=>assertSameOrigin(new Request('http://localhost:3000/api/workspace',{headers:{origin:'https://production.example'}})));
+  assert.throws(()=>assertSameOrigin(new Request('http://localhost:3000/api/workspace',{headers:{origin:'http://localhost:3000'}})),{status:403});
+ }finally{if(previous===undefined)delete process.env.BETTER_AUTH_URL;else process.env.BETTER_AUTH_URL=previous}
+});

@@ -1,73 +1,86 @@
 # Highlevel Leads
 
-A working first version of a shared outreach workspace, built with React, TypeScript, Vinext, and Cloudflare D1 through Sites.
+A standard Next.js app for the user's Vercel account. Email/password authentication, admin-only team management, member restrictions, lead workflows, reports and audits are retained. This edition uses a remote libSQL-compatible SQLite database (for example, Turso), rather than Cloudflare D1. It has no dependency on ChatGPT sign-in or Sites hosting.
 
-## Available now
+The original deployed Site remains separate and unchanged by this migration preparation.
 
-- A labeled sample workspace, separate from database records, with admin/member previews.
-- Email/password sign-in with Better Auth, admin-controlled activation/recovery links, password changes, secure sessions, and login rate limits.
-- A live workspace with server-enforced admin/member permissions and tenant isolation.
-- Lead creation, filtering, assignments, pipeline status, website edits, notes, social profile references, and CSV export.
-- Saved outreach drafts, manually logged sends, manually recorded replies, and admin in-app notifications (visible-tab polling every 20 seconds).
-- Rolling 7/30 day reports by team member; drafts excluded; deduplicated reply rates; CSV export.
-- An actual HTTPS homepage SEO checklist, website-linked social profile discovery, and limited script-based tool detection.
-- Dated manual evidence records for AI visibility, Google Business, and Google appearance.
-- Admin-only invitations, per-member feature permissions, suspend/remove/restore controls, and protected owner access. Removal reassigns leads to the acting admin while preserving message history. No invitation email is sent.
+## Deployment
 
-## Integration and release boundaries
+1. This project is in [`MuhammadFaizanjarral/reachdesk`](https://github.com/MuhammadFaizanjarral/reachdesk). The user has connected it to Vercel, so pushes to `main` trigger the connected deployment. Use the repository root, the **Next.js** preset, and the included `vercel.json`.
+2. Provision a **libSQL-compatible** hosted database. Configure its URL and token in Vercel environment variables, using a separate database for preview deployments.
+3. Set the runtime environment variables below. Use the exact intended production domain for `BETTER_AUTH_URL`. Never put secrets in source or a `NEXT_PUBLIC_` variable.
+4. Apply database migrations once using `npm run db:migrate` from a trusted environment with target database credentials. Do not run production migrations against every preview build.
+5. Deploy with Vercel's **Next.js** preset and `npm run build`, or run `npx vercel --prod`.
+6. If data needs copying, import a complete verified snapshot before allowing new records, then compare table counts and test account access. See the migration section below.
+7. Run `npm run owner:link` in a trusted console with production environment variables to create the first administrator activation link. The owner chooses their own password through that private single-use link. For an existing migrated owner, the script preserves their identity and generates a recovery link instead of replacing the account.
+8. Sign in, invite a member, generate their activation link under **Team members → Manage access**, and verify restrictions.
 
-This is an initial product foundation, not the completed commercial SaaS. Live social search, OAuth connections, sending through social platforms, inbound webhooks, automatic email delivery and subscriptions are not implemented. The lead finder searches workspace records or the labeled sample directory. Saving a profile URL does not connect an account. The inbox never claims to have delivered a message.
+GitHub deployment checks show the actual Vercel build result. A successful build does not configure the database, apply migrations, or activate the owner account. Complete [the production setup checklist](docs/VERCEL-SETUP.md) before using real records.
 
-Instagram and Facebook are the first planned provider integrations. They require an appropriately configured Meta app and approved permissions. Their official APIs do not enable unrestricted cold messaging to personal accounts. See [provider capabilities and sources](docs/INTEGRATIONS.md).
+## Environment variables
 
-Application sign-in uses email/password. The Site remains owner-private at the hosting layer until its audience is explicitly changed. The configured owner verifies their existing private-preview identity once at `/setup-account` to set the initial admin password; ordinary application access requires a password session. Adding an application membership does not change hosting access. Each identity currently belongs to one workspace.
+| Variable | Purpose |
+| --- | --- |
+| `TURSO_DATABASE_URL` | Remote libSQL/HTTPS database URL. Local files are rejected on Vercel. |
+| `TURSO_AUTH_TOKEN` | Database access token; store as a secret. |
+| `BETTER_AUTH_SECRET` | Random signing secret of at least 32 characters; store as a secret. Generate with `openssl rand -base64 48`. |
+| `BETTER_AUTH_URL` | Exact app origin, including HTTPS in production. Update if the domain changes. |
+| `BOOTSTRAP_OWNER_EMAIL` | Owner email used only by the trusted-console owner-link command. |
+| `BOOTSTRAP_OWNER_NAME` | Optional owner display name. |
 
-To onboard: set up the owner password, sign in, invite a member, then open **Team members → Manage access → Generate activation link**. Share that single-use link privately with the intended member. Activation links expire in 24 hours, recovery links in one hour. The app does not send emails. Suspensions/removals revoke sessions and outstanding links. See [account and access details](docs/ACCESS-CONTROLS.md).
-
-The SEO result covers fetched homepage HTML, not a site-wide crawl, Lighthouse performance, search rankings, or indexing verification. AI/Google evidence records are human observations, not automated visibility measurements. No tool guarantees discovery of all of a company's social accounts.
+Use Vercel environment settings or `vercel env add` to enter production secrets. Do not send tokens or passwords through chat. `.env.local`, local databases, dependencies and build output are excluded from upload by `.vercelignore`.
 
 ## Local development
 
-Use Node 22.13 or newer and install the locked dependencies through the supplied Sites installer, or `npm run install:ci`. The provided execution profile is portable.
+Use a current Node.js 22 release (22.13 or newer). Vercel is pinned to the 22.x runtime through `package.json`.
 
 ```sh
+npm ci
+# Copy .env.example to .env.local, then fill the values.
+npm run db:migrate
+npm run owner:link
+npm run dev
+```
+
+For local-only testing, `TURSO_DATABASE_URL=file:.local/highlevel.db` is supported after creating `.local/`. These local records are never a production data source. Set `BETTER_AUTH_URL` to the local server's exact origin. The one-time owner link is sensitive; share it only with the intended owner and do not commit it.
+
+## Preserving existing records and accounts
+
+The user requested preservation. A read-only check of the current deployed source on November 7, 2026 found **zero rows** in all nine durable application/account tables: workspaces, members, auth_user, auth_account, leads, messages, audits, accounts and notifications. The visible sample workspace is illustrative client data, separate from that database.
+
+Recheck the source at cutover if anyone begins using it. Do not import truncated tool projections or reconstruct records from summaries. `scripts/import-snapshot.mjs` accepts a complete exact export, validates all tables/columns, refuses non-empty target tables, imports in one transaction, and compares row counts. Run only against the intended empty target after migrations:
+
+```sh
+node --env-file-if-exists=.env.local scripts/import-snapshot.mjs /protected/path/snapshot.json
+```
+
+Keep exports outside the repository with restricted permissions. IDs, permissions, status, notes and password hashes must be preserved. Session tokens, login rate-limit records, verification records and outstanding activation/recovery links are not migrated; users sign in again and admins regenerate any needed links for the new domain.
+
+## Account and feature access
+
+Only admins can add members, change permissions, suspend, remove or restore access. Suspension/removal invalidates sessions and outstanding account links. Removal reassigns leads while preserving activity history. Team members cannot promote themselves or view another member's assigned work. CSV exports are off for members by default.
+
+Public signup endpoints are disabled. Members receive single-use activation/recovery links generated by admins; the app does not send automatic emails yet. The first owner setup is a trusted operational command, not a public bootstrap endpoint. Authenticated users can change their passwords and revoke other sessions.
+
+## Audits and integrations
+
+The SEO audit fetches one authorized HTTPS homepage. In the Node runtime it resolves DNS, rejects private/reserved destinations, pins the actual socket to a validated public address, preserves TLS hostname validation, validates every redirect and applies time/size limits. It does not execute JavaScript or perform a complete crawl.
+
+AI visibility and Google appearance are manual evidence records. Live social discovery, provider OAuth, social message delivery and inbound webhooks still need the approved integrations described in `docs/INTEGRATIONS.md`.
+
+## Validation
+
+```sh
+npm run typecheck
+npm test
 npm run build
-node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1 execute DB --local --config dist/server/wrangler.json --persist-to .wrangler/state --file drizzle/0000_sloppy_thunderbolt.sql
-npm run dev -- --hostname 127.0.0.1
 ```
 
-Apply each local migration once, including `0001_supreme_pete_wisdom.sql` and `0002_thankful_patch.sql` after the initial schema. For local authentication, create an ignored `.dev.vars` with `BETTER_AUTH_SECRET` (a generated random secret), `BETTER_AUTH_URL=http://127.0.0.1:5173`, and `BOOTSTRAP_OWNER_EMAIL=seedy@sites.test`. Production values are configured through Sites runtime secrets; never commit them. The printed preview URL is normally `http://127.0.0.1:5173/`. Local sign-in simulates a development identity only on loopback; it is absent from production builds. Local database and QA records are not published. The live workspace starts empty; the demo remains ephemeral.
+The workspace suite runs the real service through the LibSQL driver against a temporary SQLite file. It covers tenant/role isolation, atomic writes, permission restrictions, password activation/recovery and revoked sessions. Additional suites cover reporting, CSV protection, SEO parsing and public-network destination checks. Browser visual review was not available in the preparation environment; build and HTTP checks are reported separately.
 
-## Verification
+## Primary deployment references
 
-```sh
-node node_modules/typescript/bin/tsc --noEmit
-node --experimental-transform-types --test tests/workspace-policy.test.mjs
-node --experimental-vm-modules --experimental-sqlite --test tests/workspace-isolation.test.mjs
-node --experimental-strip-types --test tests/reporting.test.ts tests/seo-audit.test.ts
-```
-
-The 26 checks cover tenant/role isolation, password accounts, activation/recovery tokens, revoked sessions, restricted features, assignment races, CSRF, input bounds, reporting semantics, CSV formula protection, SEO evidence extraction, redirects and URL restrictions. Direct local HTTP checks also exercised authentication, persisted lead/message writes, notifications, manual evidence records, and a real homepage SEO fetch. Visual browser QA was blocked by pending computer-use permissions in this session.
-
-## Code map
-
-- `app/workspace-app.tsx`, `app/globals.css`: responsive dashboard and workflows.
-- `app/api/workspace/route.ts`: authenticated workspace reads and writes.
-- `app/api/audit/route.ts`: authorized website audits and manual evidence recording.
-- `lib/auth-config.ts`, `lib/auth.ts`, `lib/account-service.ts`: password auth, sessions, one-time account links and owner setup.
-- `lib/server-workspace.ts`, `lib/workspace-policy.ts`, `lib/permissions.ts`: workspace boundaries, validation and storage.
-- `lib/seo-audit.ts`: restricted HTML fetch and evidence-based checks.
-- `lib/reporting.ts`: reporting windows, attribution and exports.
-- `lib/demo-data.ts`: clearly fictional sample data and ephemeral actions.
-- `db/schema.ts`, `drizzle/`: D1 schema and migrations.
-- `.openai/hosting.json`: private Sites project and storage binding.
-
-## Next implementation phase
-
-1. Complete owner password setup and explicitly enable the intended team hosting audience.
-2. Configure Meta developer app, approved scopes, callback URLs, encrypted token storage, connection health and revocation.
-3. Implement eligible Facebook/Instagram conversations, verified inbound webhooks, event deduplication and provider message IDs.
-4. Add approved business discovery/enrichment providers with source attribution and quotas.
-5. Add auditable AI/Google measurement integrations, background jobs, email notifications and operational monitoring.
-
-Do not enable the website fetcher on a host with private-network access without a hardened public-only outbound proxy. Read the documented network limitations before moving it away from its intended Worker environment.
+- [Next.js on Vercel](https://vercel.com/docs/frameworks/full-stack/nextjs)
+- [Deploy from Vercel CLI](https://vercel.com/docs/projects/deploy-from-cli)
+- [Vercel environment variables](https://vercel.com/docs/environment-variables)
+- [Turso TypeScript/libSQL reference](https://docs.turso.tech/sdk/ts/reference)

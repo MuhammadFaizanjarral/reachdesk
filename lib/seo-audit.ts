@@ -1,3 +1,4 @@
+import {securePublicFetch} from './public-fetch.ts';
 import type { AuditCheck } from './domain';
 
 export type WebsiteAuditResult = {
@@ -166,16 +167,16 @@ export function analyzeHtml(html: string, url: string): WebsiteAuditResult {
 }
 
 /** Fetch only the authorized lead website; the calling route must check lead ownership first. */
-export async function auditWebsite(value: string): Promise<WebsiteAuditResult & { finalUrl: string }> {
+export async function auditWebsite(value: string,fetcher:typeof fetch=securePublicFetch): Promise<WebsiteAuditResult & { finalUrl: string }> {
   let target = validateAuditUrl(value);
   const permittedHost = target.hostname;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     for (let redirects = 0; redirects <= 3; redirects++) {
-      const response = await fetch(target.href, {
+      const response = await fetcher(target.href, {
         method: 'GET', redirect: 'manual', credentials: 'omit', signal: controller.signal,
-        headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'Reachdesk-WebsiteAudit/1.0' },
+        headers: { Accept: 'text/html,application/xhtml+xml', 'User-Agent': 'Highlevel-Leads-WebsiteAudit/1.0' },
       });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         await response.body?.cancel();

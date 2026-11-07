@@ -39,5 +39,6 @@ export function assertPermission(member:Pick<Member,'role'|'permissions'>,permis
 export function assertLeadOwner(member:Pick<Member,'role'|'id'>,ownerId:string) { if(member.role!=='admin' && member.id!==ownerId) throw new WorkspaceError('This lead is not assigned to you.',403); }
 export function assertSameOrigin(request:Request) {
   const origin=request.headers.get('origin');
-  if(!origin || origin!==new URL(request.url).origin) throw new WorkspaceError('This request must come from this workspace.',403);
+  const expectedOrigin=new URL(process.env.BETTER_AUTH_URL||request.url).origin;
+  if(!origin || origin!==expectedOrigin) throw new WorkspaceError('This request must come from this workspace.',403);
 }

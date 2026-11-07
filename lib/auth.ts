@@ -1,4 +1,3 @@
-import {env} from 'cloudflare:workers';
 import {headers} from 'next/headers';
 import {eq} from 'drizzle-orm';
 import {getDb} from '../db';
@@ -6,8 +5,8 @@ import {members} from '../db/schema';
 import {createPasswordAuth} from './auth-config';
 export type AppUser={userId:string;displayName:string;email:string;fullName:string|null};
 export function getPasswordAuth(){
- if(!env.BETTER_AUTH_SECRET||!env.BETTER_AUTH_URL)throw new Error('Email/password authentication is not configured.');
- return createPasswordAuth(getDb(),env.BETTER_AUTH_SECRET,env.BETTER_AUTH_URL);
+ if(!process.env.BETTER_AUTH_SECRET||!process.env.BETTER_AUTH_URL)throw new Error('Email/password authentication is not configured.');
+ return createPasswordAuth(getDb(),process.env.BETTER_AUTH_SECRET,process.env.BETTER_AUTH_URL);
 }
 export async function getAppUser():Promise<AppUser|null>{
  const session=await getPasswordAuth().api.getSession({headers:await headers()});
