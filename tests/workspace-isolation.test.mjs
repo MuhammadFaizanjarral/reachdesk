@@ -135,3 +135,75 @@ test('outreach rechecks assignment and preserves concurrent lead edits',async()=
   assert.equal(updated.notes,'Newest note');
   sqlite.close();
 });
+
+test('only admins manage members; removal blocks existing identities and preserves history',async()=>{
+ const sqlite=await setup(),admin=user('access-admin'),teammate=user('access-member'),outsider=user('access-outsider');
+ let state=await mutate(admin,{action:'createWorkspace',name:'Access controls'});const ownerId=state.currentMember.id;
+ await mutate(outsider,{action:'createWorkspace',name:'Other'});
+ state=await mutate(admin,{action:'inviteMember',name:'Member',email:teammate.email,role:'member'});
+ const memberId=state.members.find(m=>m.email===teammate.email).id;
+ await service.snapshot(teammate);
+ state=await mutate(admin,{action:'addLead',lead:{name:'Lead',company:'History',ownerId:memberId,notes:'Preserve me'}});const leadId=state.leads[0].id;
+ await mutate(teammate,{action:'saveMessage',leadId,platform:'Instagram',body:'Historic outreach',status:'logged'});
+ await assert.rejects(mutate(teammate,{action:'setMemberStatus',id:ownerId,status:'removed'}),{status:403});
+ await assert.rejects(mutate(outsider,{action:'setMemberStatus',id:memberId,status:'removed'}),{status:404});
+ await assert.rejects(mutate(admin,{action:'setMemberStatus',id:ownerId,status:'removed'}),{status:400});
+ await mutate(admin,{action:'setMemberStatus',id:memberId,status:'suspended'});
+ await assert.rejects(service.snapshot(teammate),{status:403});
+ await assert.rejects(mutate(teammate,{action:'saveMessage',leadId,platform:'Instagram',body:'Blocked'}),{status:403});
+ await assert.rejects(mutate(teammate,{action:'createWorkspace',name:'Bypass'}),{status:403});
+ state=await mutate(admin,{action:'setMemberStatus',id:memberId,status:'active'});
+ assert.equal((await service.snapshot(teammate)).leads.length,1,'suspension keeps assignments');
+ state=await mutate(admin,{action:'setMemberStatus',id:memberId,status:'removed'});
+ assert.equal(state.leads[0].ownerId,ownerId);assert.equal(state.leads[0].notes,'Preserve me');
+ assert.equal(state.messages[0].memberId,memberId,'historical authorship is preserved');
+ await assert.rejects(service.snapshot(teammate),{status:403});
+ await mutate(admin,{action:'setMemberStatus',id:memberId,status:'active'});
+ assert.equal((await service.snapshot(teammate)).leads.length,0,'restore does not steal reassigned leads');
+ sqlite.close();
+});
+
+test('restricted members cannot use protected features or restore their own permissions',async()=>{
+ const sqlite=await setup(),admin=user('permissions-admin'),teammate=user('permissions-member');
+ let state=await mutate(admin,{action:'createWorkspace',name:'Permission checks'});
+ state=await mutate(admin,{action:'inviteMember',name:'Member',email:teammate.email,role:'member'});
+ const memberId=state.members.find(m=>m.email===teammate.email).id;
+ await service.snapshot(teammate);
+ state=await mutate(admin,{action:'addLead',lead:{name:'Lead',company:'Assigned',ownerId:memberId}});const leadId=state.leads[0].id;
+ await mutate(teammate,{action:'saveMessage',leadId,platform:'Instagram',body:'Before restriction'});
+ const permissions=Object.fromEntries(['leadFinder','createLeads','editLeads','outreach','audits','reports','exports','socialAccounts'].map(key=>[key,false]));
+ await assert.rejects(mutate(teammate,{action:'setMemberPermissions',id:memberId,permissions}),{status:403});
+ await mutate(admin,{action:'setMemberPermissions',id:memberId,permissions});
+ const restricted=await service.snapshot(teammate);
+ assert.equal(restricted.leads.length,1);assert.equal(restricted.messages.length,0);assert.equal(restricted.audits.length,0);assert.equal(restricted.accounts.length,0);
+ assert.deepEqual(restricted.currentMember.permissions,permissions);
+ for(const action of [
+  {action:'addLead',lead:{name:'No',company:'No'}},
+  {action:'updateLead',id:leadId,changes:{status:'Won'}},
+  {action:'saveMessage',leadId,platform:'Instagram',body:'No'},
+  {action:'saveAccount',platform:'Instagram',handle:'no',profileUrl:'https://instagram.com/no'},
+ ])await assert.rejects(mutate(teammate,action),{status:403});
+ await assert.rejects(service.storeAudit(await service.requireWorkspace(teammate),{leadId,type:'SEO',status:'complete',score:80,summary:'No',checks:[]}),{status:403});
+ const exportModule=await loadModule(resolve(root,'lib/data-export'));await exportModule.evaluate();
+ await assert.rejects(exportModule.namespace.authorizedExport(teammate,'leads','week'),{status:403});
+ await assert.rejects(exportModule.namespace.authorizedReport(teammate,'week'),{status:403});
+ await mutate(admin,{action:'setMemberPermissions',id:memberId,permissions:{...permissions,outreach:true,exports:true,reports:true}});
+ assert.equal((await service.snapshot(teammate)).messages.length,1);
+ assert.match(await exportModule.namespace.authorizedExport(teammate,'leads','week'),/Assigned/);
+ assert.equal((await exportModule.namespace.authorizedReport(teammate,'week')).members.length,1);
+ sqlite.close();
+});
+
+test('removing an unclaimed invitation blocks sign-in until an admin restores it',async()=>{
+ const sqlite=await setup(),admin=user('invite-admin'),pending=user('invite-pending');
+ await mutate(admin,{action:'createWorkspace',name:'Invitation controls'});
+ let state=await mutate(admin,{action:'inviteMember',name:'Pending',email:pending.email,role:'member'});
+ const id=state.members.find(m=>m.email===pending.email).id;
+ await mutate(admin,{action:'setMemberStatus',id,status:'removed'});
+ await assert.rejects(service.snapshot(pending),{status:403});
+ await assert.rejects(mutate(pending,{action:'createWorkspace',name:'Bypass'}),{status:403});
+ state=await mutate(admin,{action:'setMemberStatus',id,status:'active'});
+ assert.equal(state.members.find(m=>m.id===id).status,'invited');
+ assert.equal((await service.snapshot(pending)).currentMember.status,'active');
+ sqlite.close();
+});

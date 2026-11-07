@@ -1,5 +1,5 @@
 import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
-import type { Lead, Audit, Message, SocialAccount } from '../lib/domain';
+import type { Lead, Audit, Message, SocialAccount, MemberPermissions } from '../lib/domain';
 
 export const workspaces = sqliteTable('workspaces', {
   id: text('id').primaryKey(), name: text('name').notNull(),
@@ -8,7 +8,8 @@ export const workspaces = sqliteTable('workspaces', {
 export const members = sqliteTable('members', {
   id: text('id').primaryKey(), workspaceId: text('workspace_id').notNull().references(() => workspaces.id),
   userId: text('user_id').unique(), name: text('name').notNull(), email: text('email').notNull().unique(),
-  role: text('role', {enum:['admin','member']}).notNull(), status: text('status',{enum:['active','invited']}).notNull(), createdAt: text('created_at').notNull(),
+  role: text('role', {enum:['admin','member']}).notNull(), status: text('status',{enum:['active','invited','suspended','removed']}).notNull(),
+  permissions:text('permissions',{mode:'json'}).$type<MemberPermissions>(), createdAt: text('created_at').notNull(),
 }, t => [index('members_workspace_idx').on(t.workspaceId)]);
 export const leads = sqliteTable('leads', {
   id: text('id').primaryKey(), workspaceId: text('workspace_id').notNull().references(() => workspaces.id),

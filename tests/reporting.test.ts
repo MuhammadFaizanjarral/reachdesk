@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-// @ts-expect-error Node's built-in TypeScript runner requires an explicit extension.
 import { buildReport, csvCell, reportToCsv } from '../lib/reporting.ts';
-// @ts-expect-error Node's built-in TypeScript runner requires an explicit extension.
 import { createDemoState, applyDemoAction } from '../lib/demo-data.ts';
 import type { WorkspaceState, Message } from '../lib/domain';
 

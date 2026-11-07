@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-// @ts-expect-error Node's TypeScript runner requires an explicit extension.
 import { analyzeHtml, auditWebsite, validateAuditUrl } from '../lib/seo-audit.ts';
 
 const validPage = `<!doctype html><html><head><title>Useful services for local businesses</title>

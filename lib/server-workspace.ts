@@ -2,8 +2,9 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import * as tables from '../db/schema';
 import type { ChatGPTUser } from '../app/chatgpt-auth';
+import {defaultMemberPermissions,permissionsFor} from './permissions';
 import { emptyState, type Audit, type Lead, type Member, type Message, type SocialAccount, type WorkspaceState } from './domain';
-import { assertAdmin, assertLeadOwner, type WorkspaceAction, WorkspaceError, publicUrlSchema } from './workspace-policy';
+import { assertAdmin, assertPermission, assertLeadOwner, type WorkspaceAction, WorkspaceError, publicUrlSchema } from './workspace-policy';
 
 export type WorkspaceContext = { db: ReturnType<typeof getDb>; member:typeof tables.members.$inferSelect; workspace:typeof tables.workspaces.$inferSelect };
 const now=()=>new Date().toISOString();
@@ -20,8 +21,12 @@ function isUniqueViolation(error:unknown):boolean {
 async function findMembership(user:ChatGPTUser) {
   const db=getDb();
   const existing=await db.select().from(tables.members).where(eq(tables.members.userId,user.userId)).get();
-  if(existing) return existing;
+  if(existing) {
+    if(existing.status==='suspended'||existing.status==='removed') throw new WorkspaceError('Your workspace access has been '+existing.status+'. Contact your admin.',403);
+    return existing;
+  }
   const invitation=await db.select().from(tables.members).where(eq(tables.members.email,user.email.toLowerCase())).get();
+  if(invitation && (invitation.status==='suspended'||invitation.status==='removed')) throw new WorkspaceError('Your workspace access has been '+invitation.status+'. Contact your admin.',403);
   if(invitation?.status==='invited' && !invitation.userId) {
     await db.update(tables.members).set({userId:user.userId,status:'active'}).where(and(eq(tables.members.id,invitation.id),eq(tables.members.status,'invited')));
     return await db.select().from(tables.members).where(eq(tables.members.userId,user.userId)).get();
@@ -41,7 +46,7 @@ export async function requireLeadAccess(ctx:WorkspaceContext,leadId:string):Prom
   assertLeadOwner(ctx.member,row.ownerId); return row.data;
 }
 function displayMember(row:typeof tables.members.$inferSelect):Member {
-  return {id:row.id,userId:row.userId,name:row.name,email:row.email,role:row.role,status:row.status,createdAt:row.createdAt};
+  return {id:row.id,userId:row.userId,name:row.name,email:row.email,role:row.role,status:row.status,permissions:permissionsFor({...row,permissions:row.permissions??undefined}),createdAt:row.createdAt};
 }
 export async function snapshot(user:ChatGPTUser):Promise<WorkspaceState> {
   const member=await findMembership(user);
@@ -49,6 +54,7 @@ export async function snapshot(user:ChatGPTUser):Promise<WorkspaceState> {
   const db=getDb(); const workspace=await db.select().from(tables.workspaces).where(eq(tables.workspaces.id,member.workspaceId)).get();
   if(!workspace) throw new WorkspaceError('Workspace not found.',404);
   const admin=member.role==='admin';
+  const permissions=permissionsFor({...member,permissions:member.permissions??undefined});
   const visibleLeads=await db.select().from(tables.leads).where(admin?eq(tables.leads.workspaceId,workspace.id):and(eq(tables.leads.workspaceId,workspace.id),eq(tables.leads.ownerId,member.id)));
   const [memberRows,messageRows,auditRows,notificationRows,accountRows]=await Promise.all([
     db.select().from(tables.members).where(admin?eq(tables.members.workspaceId,workspace.id):eq(tables.members.id,member.id)),
@@ -59,14 +65,14 @@ export async function snapshot(user:ChatGPTUser):Promise<WorkspaceState> {
   ]);
   return {workspace:{id:workspace.id,name:workspace.name},currentMember:displayMember(member),members:memberRows.map(displayMember),
     leads:visibleLeads.map(v=>v.data).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
-    messages:messageRows.map(v=>v.data).sort((a,b)=>a.createdAt.localeCompare(b.createdAt)),
-    audits:auditRows.map(v=>v.data).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
+    messages:(permissions.outreach?messageRows:[]).map(v=>v.data).sort((a,b)=>a.createdAt.localeCompare(b.createdAt)),
+    audits:(permissions.audits?auditRows:[]).map(v=>v.data).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
     notifications:notificationRows.map(v=>({id:v.id,title:v.title,detail:v.detail,leadId:v.leadId??undefined,read:v.read,createdAt:v.createdAt})).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),
-    accounts:accountRows.map(v=>v.data)};
+    accounts:(permissions.socialAccounts?accountRows:[]).map(v=>v.data)};
 }
 async function validateOwner(ctx:WorkspaceContext,ownerId:string) {
   const row=await ctx.db.select().from(tables.members).where(and(eq(tables.members.id,ownerId),eq(tables.members.workspaceId,ctx.workspace.id))).get();
-  if(!row) throw new WorkspaceError('Select a member of this workspace.',400);
+  if(!row || row.status==='suspended' || row.status==='removed') throw new WorkspaceError('Select an active or invited member of this workspace.',400);
   if(ctx.member.role!=='admin' && ownerId!==ctx.member.id) throw new WorkspaceError('Only admins can assign leads to another member.',403);
 }
 export async function mutateWorkspace(user:ChatGPTUser,action:WorkspaceAction):Promise<WorkspaceState> {
@@ -83,10 +89,12 @@ export async function mutateWorkspace(user:ChatGPTUser,action:WorkspaceAction):P
   }
   const ctx=await requireWorkspace(user); const {db,workspace,member}=ctx;
   if(action.action==='addLead') {
+    assertPermission({...member,permissions:member.permissions??undefined},'createLeads');
     const ownerId=action.lead.ownerId||member.id; await validateOwner(ctx,ownerId);
     const lead:Lead={...action.lead,ownerId,id:id(),status:'New',createdAt:now()};
     await db.insert(tables.leads).values({id:lead.id,workspaceId:workspace.id,ownerId,data:lead});
   } else if(action.action==='updateLead') {
+    assertPermission({...member,permissions:member.permissions??undefined},'editLeads');
     const lead=await requireLeadAccess(ctx,action.id);
     if(action.changes.ownerId) await validateOwner(ctx,action.changes.ownerId);
     const patches=Object.entries(action.changes).filter(([,value])=>value!==undefined).map(([key,value])=>sql`${`$.${key}`}, ${value}`);
@@ -99,9 +107,28 @@ export async function mutateWorkspace(user:ChatGPTUser,action:WorkspaceAction):P
     }
   } else if(action.action==='inviteMember') {
     assertAdmin(member);
-    try { await db.insert(tables.members).values({id:id(),workspaceId:workspace.id,userId:null,name:action.name,email:action.email,role:action.role,status:'invited',createdAt:now()}); }
+    try { await db.insert(tables.members).values({id:id(),workspaceId:workspace.id,userId:null,name:action.name,email:action.email,role:action.role,status:'invited',permissions:action.permissions??defaultMemberPermissions,createdAt:now()}); }
     catch(error) { if(isUniqueViolation(error)) throw new WorkspaceError('That email already has a workspace membership or invitation.',409); throw error; }
+  } else if(action.action==='setMemberPermissions' || action.action==='setMemberStatus') {
+    assertAdmin(member);
+    const target=await db.select().from(tables.members).where(and(eq(tables.members.id,action.id),eq(tables.members.workspaceId,workspace.id))).get();
+    if(!target) throw new WorkspaceError('Team member not found.',404);
+    if(target.id===member.id || target.userId===workspace.ownerUserId) throw new WorkspaceError('The workspace owner and your own admin access cannot be restricted here.',400);
+    if(target.role==='admin' && member.userId!==workspace.ownerUserId) throw new WorkspaceError('Only the workspace owner can manage another admin.',403);
+    if(action.action==='setMemberPermissions') {
+      if(target.role==='admin') throw new WorkspaceError('Admins have full access. Permissions apply to team members.',400);
+      await db.update(tables.members).set({permissions:action.permissions}).where(eq(tables.members.id,target.id));
+    } else {
+      const status=action.status==='active'&&!target.userId?'invited':action.status;
+      if(action.status==='removed') {
+        await db.batch([
+          db.update(tables.members).set({status}).where(eq(tables.members.id,target.id)),
+          db.update(tables.leads).set({ownerId:member.id,data:sql<Lead>`json_set(${tables.leads.data}, '$.ownerId', ${member.id})`}).where(and(eq(tables.leads.workspaceId,workspace.id),eq(tables.leads.ownerId,target.id))),
+        ]);
+      } else await db.update(tables.members).set({status}).where(eq(tables.members.id,target.id));
+    }
   } else if(action.action==='saveMessage') {
+    assertPermission({...member,permissions:member.permissions??undefined},'outreach');
     const lead=await requireLeadAccess(ctx,action.leadId);
     const message:Message={id:id(),leadId:lead.id,memberId:member.id,platform:action.platform,body:action.body,direction:action.direction,status:action.direction==='inbound'?'received':action.status,createdAt:now()};
     // Recheck assignment inside the atomic batch. A reassignment between the
@@ -129,6 +156,7 @@ export async function mutateWorkspace(user:ChatGPTUser,action:WorkspaceAction):P
   } else if(action.action==='readNotifications') {
     assertAdmin(member); await db.update(tables.notifications).set({read:true}).where(eq(tables.notifications.workspaceId,workspace.id));
   } else if(action.action==='saveAccount') {
+    assertPermission({...member,permissions:member.permissions??undefined},'socialAccounts');
     const existing=await db.select().from(tables.accounts).where(and(eq(tables.accounts.memberId,member.id),eq(tables.accounts.platform,action.platform))).get();
     const account:SocialAccount={id:existing?.id||`${member.id}:${action.platform}`,memberId:member.id,platform:action.platform,handle:action.handle,profileUrl:action.profileUrl,status:'profile_saved'};
     await db.insert(tables.accounts).values({id:account.id,workspaceId:workspace.id,memberId:member.id,platform:account.platform,data:account}).onConflictDoUpdate({target:[tables.accounts.memberId,tables.accounts.platform],set:{data:account}});
@@ -136,6 +164,7 @@ export async function mutateWorkspace(user:ChatGPTUser,action:WorkspaceAction):P
   return snapshot(user);
 }
 export async function storeAudit(ctx:WorkspaceContext,input:Omit<Audit,'id'|'createdAt'>):Promise<Audit> {
+  assertPermission({...ctx.member,permissions:ctx.member.permissions??undefined},'audits');
   await requireLeadAccess(ctx,input.leadId);
   const audit:Audit={...input,id:id(),createdAt:now()};
   const inserted=await ctx.db.insert(tables.audits).select(ctx.db.select({

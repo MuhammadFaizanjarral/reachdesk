@@ -1,7 +1,7 @@
 import {z,ZodError} from 'zod';
 import {getChatGPTUser} from '../../chatgpt-auth';
 import {requireWorkspace,requireLeadAccess,storeAudit,snapshot,mergeDiscoveredLinks} from '../../../lib/server-workspace';
-import {assertSameOrigin,WorkspaceError} from '../../../lib/workspace-policy';
+import {assertSameOrigin,assertPermission,WorkspaceError} from '../../../lib/workspace-policy';
 import {auditWebsite} from '../../../lib/seo-audit';
 export const dynamic='force-dynamic';
 const input=z.object({leadId:z.string().min(1).max(100),type:z.enum(['SEO','AI visibility','Google Business']),summary:z.string().trim().max(2000).nullable().optional(),evidence:z.string().trim().max(10000).nullable().optional()}).strict();
@@ -12,7 +12,9 @@ export async function POST(request:Request){
   const user=await getChatGPTUser();if(!user)return json({error:'Please sign in to run an audit.'},401);
   const raw=await request.text();if(raw.length>16000)return json({error:'Audit request is too large.'},413);
   const body=input.parse(JSON.parse(raw));
-  const ctx=await requireWorkspace(user),lead=await requireLeadAccess(ctx,body.leadId);
+  const ctx=await requireWorkspace(user);
+  assertPermission({...ctx.member,permissions:ctx.member.permissions??undefined},'audits');
+  const lead=await requireLeadAccess(ctx,body.leadId);
   let audit;
   if(body.type==='SEO'){
    if(!lead.website)throw new WorkspaceError('Add an HTTPS website to this lead before running an audit.');

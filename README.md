@@ -11,7 +11,7 @@ A working first version of a shared outreach workspace, built with React, TypeSc
 - Rolling 7/30 day reports by team member; drafts excluded; deduplicated reply rates; CSV export.
 - An actual HTTPS homepage SEO checklist, website-linked social profile discovery, and limited script-based tool detection.
 - Dated manual evidence records for AI visibility, Google Business, and Google appearance.
-- Email-based membership invitations saved in the workspace. No invitation email is sent.
+- Admin-only invitations, per-member feature permissions, suspend/remove/restore controls, and protected owner access. Removal reassigns leads to the acting admin while preserving message history. No invitation email is sent.
 
 ## Integration and release boundaries
 
@@ -44,7 +44,7 @@ node --experimental-vm-modules --experimental-sqlite --test tests/workspace-isol
 node --experimental-strip-types --test tests/reporting.test.ts tests/seo-audit.test.ts
 ```
 
-The 22 checks cover tenant/role isolation, assignment races, CSRF, input bounds, reporting semantics, CSV formula protection, SEO evidence extraction, redirects and URL restrictions. Direct local HTTP checks also exercised authentication, persisted lead/message writes, notifications, manual evidence records, and a real homepage SEO fetch. Visual browser QA was blocked by pending computer-use permissions in this session.
+The 25 checks cover tenant/role isolation, revoked access, restricted features, assignment races, CSRF, input bounds, reporting semantics, CSV formula protection, SEO evidence extraction, redirects and URL restrictions. Direct local HTTP checks also exercised authentication, persisted lead/message writes, notifications, manual evidence records, and a real homepage SEO fetch. Visual browser QA was blocked by pending computer-use permissions in this session.
 
 ## Code map
 

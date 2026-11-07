@@ -116,12 +116,18 @@ export function createDemoState(): WorkspaceState {
 const id = (prefix:string) => `${prefix}_${crypto.randomUUID()}`;
 const platforms: Platform[] = ['Instagram','Facebook','LinkedIn','X','Website'];
 
+import {defaultMemberPermissions,permissionsFor} from './permissions.ts';
+
 // An intentionally local reducer for the labelled sample workspace. Real records use the API.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function applyDemoAction(state: WorkspaceState, action: any): WorkspaceState {
   const next = structuredClone(state);
   const currentMember = next.currentMember;
   if (!currentMember) throw new Error('Select a workspace first.');
+  if(currentMember.status==='suspended'||currentMember.status==='removed') throw new Error('Your workspace access is restricted.');
+  const required:Record<string,keyof import('./domain').MemberPermissions>={addLead:'createLeads',updateLead:'editLeads',saveMessage:'outreach',saveAccount:'socialAccounts',addAudit:'audits'};
+  const permission=required[action.action];
+  if(permission&&!permissionsFor(currentMember)[permission])throw new Error('Your admin has restricted this feature.');
   const createdAt = new Date().toISOString();
   const canAccess = (lead:Lead) => currentMember.role === 'admin' || lead.ownerId === currentMember.id;
   const getLead = (leadId:string) => {
@@ -156,7 +162,20 @@ export function applyDemoAction(state: WorkspaceState, action: any): WorkspaceSt
       const email = text(action.email).toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !text(action.name)) throw new Error('A name and valid email are required.');
       if (next.members.some(m => m.email === email)) throw new Error('This email is already in the workspace.');
-      next.members.push({id:id('member'),userId:null,name:text(action.name),email,role:action.role === 'admin'?'admin':'member',status:'invited',createdAt});
+      next.members.push({id:id('member'),userId:null,name:text(action.name),email,role:action.role === 'admin'?'admin':'member',status:'invited',permissions:action.permissions??defaultMemberPermissions,createdAt});
+      break;
+    }
+    case 'setMemberStatus':
+    case 'setMemberPermissions': {
+      if(currentMember.role!=='admin')throw new Error('Only admins can manage team access.');
+      const target=next.members.find(m=>m.id===action.id);
+      if(!target)throw new Error('Team member not found.');
+      if(target.role==='admin'||target.id===currentMember.id)throw new Error('Admin access cannot be changed in this preview.');
+      if(action.action==='setMemberPermissions') target.permissions={...defaultMemberPermissions,...action.permissions};
+      else {
+        target.status=action.status==='active'&&!target.userId?'invited':action.status;
+        if(action.status==='removed')next.leads.forEach(l=>{if(l.ownerId===target.id)l.ownerId=currentMember.id});
+      }
       break;
     }
     case 'saveMessage': {
@@ -173,6 +192,7 @@ export function applyDemoAction(state: WorkspaceState, action: any): WorkspaceSt
       break;
     }
     case 'readNotifications':
+      if(currentMember.role!=='admin')throw new Error('Only admins can manage notifications.');
       next.notifications = next.notifications.map(n => ({...n,read:true}));
       break;
     case 'saveAccount': {
