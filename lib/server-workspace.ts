@@ -1,7 +1,7 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { getDb } from '../db';
 import * as tables from '../db/schema';
-import type { ChatGPTUser } from '../app/chatgpt-auth';
+import type {AppUser} from './auth';
 import {defaultMemberPermissions,permissionsFor} from './permissions';
 import { emptyState, type Audit, type Lead, type Member, type Message, type SocialAccount, type WorkspaceState } from './domain';
 import { assertAdmin, assertPermission, assertLeadOwner, type WorkspaceAction, WorkspaceError, publicUrlSchema } from './workspace-policy';
@@ -18,7 +18,7 @@ function isUniqueViolation(error:unknown):boolean {
   return false;
 }
 
-async function findMembership(user:ChatGPTUser) {
+async function findMembership(user:AppUser) {
   const db=getDb();
   const existing=await db.select().from(tables.members).where(eq(tables.members.userId,user.userId)).get();
   if(existing) {
@@ -33,7 +33,7 @@ async function findMembership(user:ChatGPTUser) {
   }
   return null;
 }
-export async function requireWorkspace(user:ChatGPTUser):Promise<WorkspaceContext> {
+export async function requireWorkspace(user:AppUser):Promise<WorkspaceContext> {
   const db=getDb(); const member=await findMembership(user);
   if(!member) throw new WorkspaceError('Create a workspace or ask your admin to add your sign-in email.',404);
   const workspace=await db.select().from(tables.workspaces).where(eq(tables.workspaces.id,member.workspaceId)).get();
@@ -46,9 +46,9 @@ export async function requireLeadAccess(ctx:WorkspaceContext,leadId:string):Prom
   assertLeadOwner(ctx.member,row.ownerId); return row.data;
 }
 function displayMember(row:typeof tables.members.$inferSelect):Member {
-  return {id:row.id,userId:row.userId,name:row.name,email:row.email,role:row.role,status:row.status,permissions:permissionsFor({...row,permissions:row.permissions??undefined}),createdAt:row.createdAt};
+  return {id:row.id,userId:row.userId,name:row.name,email:row.email,role:row.role,status:row.status,accountReady:!!row.authUserId,permissions:permissionsFor({...row,permissions:row.permissions??undefined}),createdAt:row.createdAt};
 }
-export async function snapshot(user:ChatGPTUser):Promise<WorkspaceState> {
+export async function snapshot(user:AppUser):Promise<WorkspaceState> {
   const member=await findMembership(user);
   if(!member) return {...emptyState};
   const db=getDb(); const workspace=await db.select().from(tables.workspaces).where(eq(tables.workspaces.id,member.workspaceId)).get();
@@ -75,7 +75,7 @@ async function validateOwner(ctx:WorkspaceContext,ownerId:string) {
   if(!row || row.status==='suspended' || row.status==='removed') throw new WorkspaceError('Select an active or invited member of this workspace.',400);
   if(ctx.member.role!=='admin' && ownerId!==ctx.member.id) throw new WorkspaceError('Only admins can assign leads to another member.',403);
 }
-export async function mutateWorkspace(user:ChatGPTUser,action:WorkspaceAction):Promise<WorkspaceState> {
+export async function mutateWorkspace(user:AppUser,action:WorkspaceAction):Promise<WorkspaceState> {
   if(action.action==='createWorkspace') {
     if(await findMembership(user)) throw new WorkspaceError('You already belong to a workspace.',409);
     const db=getDb(), workspaceId=id(), createdAt=now();
@@ -120,10 +120,12 @@ export async function mutateWorkspace(user:ChatGPTUser,action:WorkspaceAction):P
       await db.update(tables.members).set({permissions:action.permissions}).where(eq(tables.members.id,target.id));
     } else {
       const status=action.status==='active'&&!target.userId?'invited':action.status;
-      if(action.status==='removed') {
+      if(action.status==='removed'||action.status==='suspended') {
         await db.batch([
           db.update(tables.members).set({status}).where(eq(tables.members.id,target.id)),
-          db.update(tables.leads).set({ownerId:member.id,data:sql<Lead>`json_set(${tables.leads.data}, '$.ownerId', ${member.id})`}).where(and(eq(tables.leads.workspaceId,workspace.id),eq(tables.leads.ownerId,target.id))),
+          db.update(tables.accountLinks).set({usedAt:now()}).where(eq(tables.accountLinks.memberId,target.id)),
+          ...(target.authUserId?[db.delete(tables.authSession).where(eq(tables.authSession.userId,target.authUserId))]:[]),
+          ...(action.status==='removed'?[db.update(tables.leads).set({ownerId:member.id,data:sql<Lead>`json_set(${tables.leads.data}, '$.ownerId', ${member.id})`}).where(and(eq(tables.leads.workspaceId,workspace.id),eq(tables.leads.ownerId,target.id)))]:[]),
         ]);
       } else await db.update(tables.members).set({status}).where(eq(tables.members.id,target.id));
     }

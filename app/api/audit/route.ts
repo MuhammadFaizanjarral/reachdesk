@@ -1,5 +1,5 @@
 import {z,ZodError} from 'zod';
-import {getChatGPTUser} from '../../chatgpt-auth';
+import {getAppUser} from '../../../lib/auth';
 import {requireWorkspace,requireLeadAccess,storeAudit,snapshot,mergeDiscoveredLinks} from '../../../lib/server-workspace';
 import {assertSameOrigin,assertPermission,WorkspaceError} from '../../../lib/workspace-policy';
 import {auditWebsite} from '../../../lib/seo-audit';
@@ -9,7 +9,7 @@ const json=(value:unknown,status=200)=>Response.json(value,{status,headers:{'Cac
 export async function POST(request:Request){
  try{
   assertSameOrigin(request);
-  const user=await getChatGPTUser();if(!user)return json({error:'Please sign in to run an audit.'},401);
+  const user=await getAppUser();if(!user)return json({error:'Please sign in to run an audit.'},401);
   const raw=await request.text();if(raw.length>16000)return json({error:'Audit request is too large.'},413);
   const body=input.parse(JSON.parse(raw));
   const ctx=await requireWorkspace(user);

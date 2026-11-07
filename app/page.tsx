@@ -1,7 +1,8 @@
-import { getChatGPTUser } from './chatgpt-auth';
+import {getAppUser} from '../lib/auth';
 import WorkspaceApp from './workspace-app';
-export const dynamic = 'force-dynamic';
-export default async function Home() {
-  const user = await getChatGPTUser();
-  return <WorkspaceApp user={user ? {name:user.displayName,email:user.email} : null} />;
+import AuthScreen from './auth-screen';
+export const dynamic='force-dynamic';
+export default async function Home(){
+ const user=await getAppUser();
+ return user?<WorkspaceApp user={{name:user.displayName,email:user.email}}/>:<AuthScreen/>;
 }

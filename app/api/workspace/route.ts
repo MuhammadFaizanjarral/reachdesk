@@ -1,4 +1,4 @@
-import { getChatGPTUser } from '../../chatgpt-auth';
+import {getAppUser} from '../../../lib/auth';
 import { mutateWorkspace, snapshot } from '../../../lib/server-workspace';
 import { actionSchema, assertSameOrigin, WorkspaceError } from '../../../lib/workspace-policy';
 import { ZodError } from 'zod';
@@ -12,12 +12,12 @@ function failure(error:unknown) {
   return json({error:'The workspace could not be updated. Please try again.'},500);
 }
 export async function GET() {
-  try { const user=await getChatGPTUser(); if(!user) return json({error:'Please sign in to use your workspace.'},401); return json(await snapshot(user)); } catch(error) { return failure(error); }
+  try { const user=await getAppUser(); if(!user) return json({error:'Please sign in to use your workspace.'},401); return json(await snapshot(user)); } catch(error) { return failure(error); }
 }
 export async function POST(request:Request) {
   try {
     assertSameOrigin(request);
-    const user=await getChatGPTUser(); if(!user) return json({error:'Please sign in to use your workspace.'},401);
+    const user=await getAppUser(); if(!user) return json({error:'Please sign in to use your workspace.'},401);
     const body=await request.text(); if(body.length>64000) return json({error:'This request is too large.'},413);
     const action=actionSchema.parse(JSON.parse(body)); return json(await mutateWorkspace(user,action));
   } catch(error) { return failure(error); }

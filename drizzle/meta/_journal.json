@@ -15,6 +15,13 @@
       "when": 1794062135467,
       "tag": "0001_supreme_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794063003576,
+      "tag": "0002_thankful_patch",
+      "breakpoints": true
     }
   ]
 }

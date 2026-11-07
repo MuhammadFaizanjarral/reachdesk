@@ -5,6 +5,7 @@ A working first version of a shared outreach workspace, built with React, TypeSc
 ## Available now
 
 - A labeled sample workspace, separate from database records, with admin/member previews.
+- Email/password sign-in with Better Auth, admin-controlled activation/recovery links, password changes, secure sessions, and login rate limits.
 - A live workspace with server-enforced admin/member permissions and tenant isolation.
 - Lead creation, filtering, assignments, pipeline status, website edits, notes, social profile references, and CSV export.
 - Saved outreach drafts, manually logged sends, manually recorded replies, and admin in-app notifications (visible-tab polling every 20 seconds).
@@ -15,11 +16,13 @@ A working first version of a shared outreach workspace, built with React, TypeSc
 
 ## Integration and release boundaries
 
-This is an initial product foundation, not the completed commercial SaaS. Live social search, OAuth connections, sending through social platforms, inbound webhooks, email delivery, subscriptions, and independent email/password authentication are not implemented. The lead finder searches workspace records or the labeled sample directory. Saving a profile URL does not connect an account. The inbox never claims to have delivered a message.
+This is an initial product foundation, not the completed commercial SaaS. Live social search, OAuth connections, sending through social platforms, inbound webhooks, automatic email delivery and subscriptions are not implemented. The lead finder searches workspace records or the labeled sample directory. Saving a profile URL does not connect an account. The inbox never claims to have delivered a message.
 
 Instagram and Facebook are the first planned provider integrations. They require an appropriately configured Meta app and approved permissions. Their official APIs do not enable unrestricted cold messaging to personal accounts. See [provider capabilities and sources](docs/INTEGRATIONS.md).
 
-The hosted version uses Sites-managed ChatGPT sign-in and starts owner-private. Adding an application membership does not change the hosting access policy; actual team access must be enabled separately. A standalone SaaS deployment needs a separately chosen identity and account lifecycle system. Each identity currently belongs to one workspace.
+Application sign-in uses email/password. The Site remains owner-private at the hosting layer until its audience is explicitly changed. The configured owner verifies their existing private-preview identity once at `/setup-account` to set the initial admin password; ordinary application access requires a password session. Adding an application membership does not change hosting access. Each identity currently belongs to one workspace.
+
+To onboard: set up the owner password, sign in, invite a member, then open **Team members → Manage access → Generate activation link**. Share that single-use link privately with the intended member. Activation links expire in 24 hours, recovery links in one hour. The app does not send emails. Suspensions/removals revoke sessions and outstanding links. See [account and access details](docs/ACCESS-CONTROLS.md).
 
 The SEO result covers fetched homepage HTML, not a site-wide crawl, Lighthouse performance, search rankings, or indexing verification. AI/Google evidence records are human observations, not automated visibility measurements. No tool guarantees discovery of all of a company's social accounts.
 
@@ -33,7 +36,7 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 npm run dev -- --hostname 127.0.0.1
 ```
 
-Apply each local migration once. The printed preview URL is normally `http://127.0.0.1:5173/`. Local sign-in simulates a development identity only on loopback; it is absent from production builds. Local database and QA records are not published. The live workspace starts empty; the demo remains ephemeral.
+Apply each local migration once, including `0001_supreme_pete_wisdom.sql` and `0002_thankful_patch.sql` after the initial schema. For local authentication, create an ignored `.dev.vars` with `BETTER_AUTH_SECRET` (a generated random secret), `BETTER_AUTH_URL=http://127.0.0.1:5173`, and `BOOTSTRAP_OWNER_EMAIL=seedy@sites.test`. Production values are configured through Sites runtime secrets; never commit them. The printed preview URL is normally `http://127.0.0.1:5173/`. Local sign-in simulates a development identity only on loopback; it is absent from production builds. Local database and QA records are not published. The live workspace starts empty; the demo remains ephemeral.
 
 ## Verification
 
@@ -44,14 +47,15 @@ node --experimental-vm-modules --experimental-sqlite --test tests/workspace-isol
 node --experimental-strip-types --test tests/reporting.test.ts tests/seo-audit.test.ts
 ```
 
-The 25 checks cover tenant/role isolation, revoked access, restricted features, assignment races, CSRF, input bounds, reporting semantics, CSV formula protection, SEO evidence extraction, redirects and URL restrictions. Direct local HTTP checks also exercised authentication, persisted lead/message writes, notifications, manual evidence records, and a real homepage SEO fetch. Visual browser QA was blocked by pending computer-use permissions in this session.
+The 26 checks cover tenant/role isolation, password accounts, activation/recovery tokens, revoked sessions, restricted features, assignment races, CSRF, input bounds, reporting semantics, CSV formula protection, SEO evidence extraction, redirects and URL restrictions. Direct local HTTP checks also exercised authentication, persisted lead/message writes, notifications, manual evidence records, and a real homepage SEO fetch. Visual browser QA was blocked by pending computer-use permissions in this session.
 
 ## Code map
 
 - `app/workspace-app.tsx`, `app/globals.css`: responsive dashboard and workflows.
 - `app/api/workspace/route.ts`: authenticated workspace reads and writes.
 - `app/api/audit/route.ts`: authorized website audits and manual evidence recording.
-- `lib/server-workspace.ts`, `lib/workspace-policy.ts`: workspace boundaries, validation and storage.
+- `lib/auth-config.ts`, `lib/auth.ts`, `lib/account-service.ts`: password auth, sessions, one-time account links and owner setup.
+- `lib/server-workspace.ts`, `lib/workspace-policy.ts`, `lib/permissions.ts`: workspace boundaries, validation and storage.
 - `lib/seo-audit.ts`: restricted HTML fetch and evidence-based checks.
 - `lib/reporting.ts`: reporting windows, attribution and exports.
 - `lib/demo-data.ts`: clearly fictional sample data and ephemeral actions.
@@ -60,7 +64,7 @@ The 25 checks cover tenant/role isolation, revoked access, restricted features, 
 
 ## Next implementation phase
 
-1. Choose production account onboarding and enable the intended team hosting audience.
+1. Complete owner password setup and explicitly enable the intended team hosting audience.
 2. Configure Meta developer app, approved scopes, callback URLs, encrypted token storage, connection health and revocation.
 3. Implement eligible Facebook/Instagram conversations, verified inbound webhooks, event deduplication and provider message IDs.
 4. Add approved business discovery/enrichment providers with source attribution and quotas.

@@ -1,9 +1,9 @@
 import type {WorkspaceState} from './domain';
-import type {ChatGPTUser} from '../app/chatgpt-auth';
+import type {AppUser} from './auth';
 import {requireWorkspace,snapshot} from './server-workspace';
 import {assertPermission} from './workspace-policy';
 import {buildReport,csvCell,reportToCsv} from './reporting';
-export async function authorizedReport(user:ChatGPTUser,period:'week'|'month') {
+export async function authorizedReport(user:AppUser,period:'week'|'month') {
   const ctx=await requireWorkspace(user);
   assertPermission({...ctx.member,permissions:ctx.member.permissions??undefined},'reports');
   return buildReport(await snapshot(user),period);
@@ -17,7 +17,7 @@ export function leadCsv(state:WorkspaceState,filters:ExportFilters={}) {
     &&(!filters.location||l.location.toLowerCase().includes(filters.location.toLowerCase())));
   return [['Name','Company','Industry','Location','Website','Email','Platform','Profile','Status','Owner'],...matching.map(l=>[l.name,l.company,l.industry,l.location,l.website,l.email,l.platform,l.profileUrl,l.status,state.members.find(m=>m.id===l.ownerId)?.name||'Unassigned'])].map(r=>r.map(csvCell).join(',')).join('\r\n');
 }
-export async function authorizedExport(user:ChatGPTUser,type:'leads'|'report',period:'week'|'month',filters:ExportFilters={}) {
+export async function authorizedExport(user:AppUser,type:'leads'|'report',period:'week'|'month',filters:ExportFilters={}) {
   const ctx=await requireWorkspace(user);
   const actor={...ctx.member,permissions:ctx.member.permissions??undefined};
   assertPermission(actor,'exports');
