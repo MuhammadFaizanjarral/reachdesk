@@ -1,0 +1,11 @@
+export type Role = 'admin' | 'member';
+export type Platform = 'Instagram' | 'Facebook' | 'LinkedIn' | 'X' | 'Website';
+export type Lead = { id:string; name:string; company:string; industry:string; location:string; website:string; email:string; platform:Platform; profileUrl:string; socialLinks:Record<string,string>; status:'New'|'Contacted'|'Replied'|'Qualified'|'Won'; ownerId:string; notes:string; createdAt:string };
+export type Member = { id:string; userId:string|null; name:string; email:string; role:Role; status:'active'|'invited'; createdAt:string };
+export type Message = { id:string; leadId:string; memberId:string; platform:Platform; body:string; direction:'outbound'|'inbound'; status:'draft'|'logged'|'received'; createdAt:string };
+export type AuditCheck = { label:string; status:'pass'|'warn'|'fail'|'unknown'; detail:string };
+export type Audit = { id:string; leadId:string; type:'SEO'|'AI visibility'|'Google Business'; status:'complete'|'manual'; score:number|null; summary:string; checks:AuditCheck[]; createdAt:string };
+export type Notification = { id:string; title:string; detail:string; read:boolean; createdAt:string; leadId?:string };
+export type SocialAccount = { id:string; memberId:string; platform:Platform; handle:string; profileUrl:string; status:'profile_saved'|'connected' };
+export type WorkspaceState = { workspace:{id:string;name:string}|null; currentMember:Member|null; members:Member[]; leads:Lead[]; messages:Message[]; audits:Audit[]; notifications:Notification[]; accounts:SocialAccount[] };
+export const emptyState:WorkspaceState = {workspace:null,currentMember:null,members:[],leads:[],messages:[],audits:[],notifications:[],accounts:[]};
